@@ -5,71 +5,55 @@ import { AccessManager } from "@/lib/access-manager"
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { plan, paymentMethod, customer, amount } = body
 
-    // Simular processamento de pagamento
-    // Em produção, aqui você integraria com um gateway real (Stripe, PagSeguro, etc.)
+    // Verificar se é uma compra aprovada
+    if (body.event === "compra_aprovada" || body.status === "approved") {
+      const { customer_email, customer_name, product_id, transaction_id, amount } = body
 
-    // Gerar ID único para a compra
-    const purchaseId = `purchase_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      // 1. Determinar plano baseado no product_id
+      let plan = "combo" // default
+      if (product_id?.includes("massagem")) plan = "massagem"
+      else if (product_id?.includes("amamentacao")) plan = "amamentacao"
 
-    // Simular delay de processamento
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+      // 2. Criar acesso digital
+      const purchaseId = `kirvano_${transaction_id}`
+      const accessToken = AccessManager.createAccess(purchaseId, customer_email, plan)
 
-    // Simular sucesso (95% das vezes)
-    const isSuccess = Math.random() > 0.05
-
-    if (isSuccess) {
-      // 1. Criar acesso digital
-      const accessToken = AccessManager.createAccess(purchaseId, customer.email, plan)
-
-      // 2. Gerar links de acesso
+      // 3. Gerar links de acesso
       const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"
       const accessLinks = AccessManager.generateAccessLinks(baseUrl, accessToken, plan)
 
-      // 3. Preparar dados para email
+      // 4. Preparar dados para email
       const purchaseData = {
         purchaseId,
-        customerEmail: customer.email,
-        customerName: customer.name,
+        customerEmail: customer_email,
+        customerName: customer_name || "Cliente",
         plan,
-        amount,
+        amount: amount || "67,90",
         accessLinks,
       }
 
-      // 4. Enviar email de acesso
+      // 5. Enviar email de acesso
       const emailSent = await EmailService.sendAccessEmail(purchaseData)
 
-      if (!emailSent) {
-        console.warn("Falha ao enviar email, mas compra foi processada")
-      }
-
-      // 5. Salvar no banco de dados (simulado)
-      const purchaseRecord = {
-        id: purchaseId,
-        plan,
-        paymentMethod,
-        customer,
-        amount,
-        status: "approved",
+      console.log("✅ Compra Kirvano processada:", {
+        email: customer_email,
+        produto: product_id,
+        transacao: transaction_id,
         accessToken,
         emailSent,
-        createdAt: new Date().toISOString(),
-      }
-
-      console.log("✅ Compra processada e entrega realizada:", purchaseRecord)
+      })
 
       return NextResponse.json({
         success: true,
-        purchaseId,
         accessToken,
-        message: "Pagamento processado e acesso enviado por email!",
+        emailSent,
       })
-    } else {
-      return NextResponse.json({ success: false, message: "Falha no processamento do pagamento" }, { status: 400 })
     }
+
+    return NextResponse.json({ message: "Event processed" })
   } catch (error) {
-    console.error("Erro no processamento:", error)
-    return NextResponse.json({ success: false, message: "Erro interno do servidor" }, { status: 500 })
+    console.error("Erro no webhook Kirvano:", error)
+    return NextResponse.json({ error: "Internal error" }, { status: 500 })
   }
 }
